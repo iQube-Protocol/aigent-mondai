@@ -34,11 +34,20 @@ export const sendMessage = async (
       throw new Error("Document context service unavailable");
     }
     
-    // Force refresh context from storage to ensure we have latest document updates
+    // Force initialize context with the conversation ID to ensure we have latest data
     if (conversationId) {
-      mcpClient.initializeContext(conversationId)
-        .then(() => console.log("Context initialized for document access"))
-        .catch(error => console.error("Error initializing context:", error));
+      try {
+        await mcpClient.initializeContext(conversationId);
+        console.log("Context initialized for document access");
+        
+        // Force refresh from storage
+        mcpClient.refreshContext();
+      } catch (error) {
+        console.error("Error initializing context:", error);
+        toast.error("Error accessing document context", {
+          description: "Some documents might not be included in the response"
+        });
+      }
     }
     
     const context = mcpClient.getModelContext();
@@ -52,6 +61,8 @@ export const sendMessage = async (
       
       // Debug document content
       let hasContentIssues = false;
+      let docsWithContent = 0;
+      
       documentContext.forEach((doc, i) => {
         console.log(`Document ${i+1}: ${doc.documentName}`);
         console.log(`Type: ${doc.documentType}, Content length: ${doc.content?.length || 0}`);
@@ -60,13 +71,20 @@ export const sendMessage = async (
           console.error(`⚠️ Document ${doc.documentName} has NO CONTENT! This will affect AI response.`);
           hasContentIssues = true;
         } else {
+          docsWithContent++;
           console.log(`Content preview: ${doc.content.substring(0, 100)}...`);
         }
       });
       
+      console.log(`Documents with content: ${docsWithContent} out of ${documentContext.length}`);
+      
       if (hasContentIssues) {
-        toast.error("Some documents have content issues", {
+        toast.warning("Some documents have content issues", {
           description: "Document content may not be properly included in the AI response"
+        });
+      } else if (docsWithContent > 0) {
+        toast.success(`Including ${docsWithContent} document(s) in your request`, {
+          description: "The AI will use these documents to provide a better response"
         });
       }
     }
@@ -79,10 +97,12 @@ export const sendMessage = async (
       documentContext // Include document context in the request
     };
 
-    console.log("Full payload being sent to AI service:", JSON.stringify({
-      ...payload,
-      documentContext: documentContext ? `${documentContext.length} documents included` : 'none'
-    }));
+    console.log("Sending request to AI service with:", {
+      message,
+      conversationId,
+      hasHistoricalContext: !!historicalContext,
+      documentCount: documentContext ? documentContext.length : 0
+    });
 
     // Call the appropriate edge function
     const { data, error } = await supabase.functions.invoke(`${agentType}-ai`, {

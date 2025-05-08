@@ -8,10 +8,13 @@ import { ContextStorageService, StorageOptions } from './types';
 export class LocalStorageService implements ContextStorageService {
   private storage: Storage;
   private keyPrefix: string;
+  private maxDocumentSize: number;
   
   constructor(options: StorageOptions = {}) {
     this.storage = options.storage || (typeof localStorage !== 'undefined' ? localStorage : null);
     this.keyPrefix = options.keyPrefix || 'mcp-context-';
+    // Set maximum document size to 1MB by default (localStorage has ~5MB total limit)
+    this.maxDocumentSize = options.maxDocumentSize || 1024 * 1024;
     
     if (!this.storage) {
       console.warn('LocalStorage not available. Context persistence will not work.');
@@ -32,46 +35,91 @@ export class LocalStorageService implements ContextStorageService {
       
       // First, verify document content integrity before saving
       if (context.documentContext && context.documentContext.length > 0) {
-        const invalidDocs = context.documentContext.filter(doc => !doc.content || doc.content.length === 0);
-        if (invalidDocs.length > 0) {
-          console.warn(`⚠️ Attempting to save context with ${invalidDocs.length} invalid documents:`, 
-            invalidDocs.map(d => d.documentName));
-        }
+        // Safe copy of the context to avoid modifying the original
+        const contextForStorage = this.prepareContextForStorage(context);
         
         // Log document sizes for debugging
-        const docSizes = context.documentContext.map(doc => ({
+        const docSizes = contextForStorage.documentContext.map(doc => ({
           name: doc.documentName,
           size: doc.content ? doc.content.length : 0
         }));
         console.log('Document sizes before storage:', docSizes);
-      }
-      
-      // Serialize and save to storage
-      const serialized = JSON.stringify(context);
-      this.storage.setItem(key, serialized);
-      
-      // Verify that the context was saved correctly by reading it back
-      const savedItem = this.storage.getItem(key);
-      if (!savedItem) {
-        throw new Error(`Context for ${conversationId} was not saved properly`);
-      }
-      
-      // Verify that document content survived serialization
-      const savedContext = JSON.parse(savedItem) as MCPContext;
-      if (savedContext.documentContext && context.documentContext) {
-        const originalDocCount = context.documentContext.length;
-        const savedDocCount = savedContext.documentContext.length;
         
-        if (originalDocCount !== savedDocCount) {
-          console.error(`Document count mismatch after saving. Original: ${originalDocCount}, Saved: ${savedDocCount}`);
-        } else {
-          console.log(`Successfully saved context with ${savedDocCount} documents for conversation ${conversationId}`);
+        // Serialize and save to storage
+        const serialized = JSON.stringify(contextForStorage);
+        this.storage.setItem(key, serialized);
+        
+        // Verify that the context was saved correctly by reading it back
+        this.verifyStoredContext(key, contextForStorage);
+      } else {
+        // No documents, just save the context normally
+        const serialized = JSON.stringify(context);
+        this.storage.setItem(key, serialized);
+        console.log(`Saved context without documents for conversation ${conversationId}`);
+      }
+    } catch (error) {
+      console.error('Error saving context to storage:', error);
+      this.handleStorageError(conversationId, context, error);
+    }
+  }
+  
+  /**
+   * Prepare context for storage by handling large documents
+   */
+  private prepareContextForStorage(context: MCPContext): MCPContext {
+    const contextCopy = JSON.parse(JSON.stringify(context)) as MCPContext;
+    
+    if (contextCopy.documentContext) {
+      // Check each document for size issues and handle them
+      contextCopy.documentContext = contextCopy.documentContext.map(doc => {
+        if (!doc.content) {
+          console.warn(`Document ${doc.documentName} has no content, adding placeholder`);
+          return { ...doc, content: '[No content available]' };
         }
+        
+        // Check if document is too large
+        if (doc.content.length > this.maxDocumentSize) {
+          console.warn(`Document ${doc.documentName} exceeds max size (${doc.content.length} > ${this.maxDocumentSize}), truncating`);
+          // Truncate and add warning
+          return { 
+            ...doc, 
+            content: doc.content.substring(0, this.maxDocumentSize) + 
+                    '\n[CONTENT TRUNCATED DUE TO SIZE LIMITATIONS]'
+          };
+        }
+        
+        return doc;
+      });
+    }
+    
+    return contextCopy;
+  }
+  
+  /**
+   * Verify that the context was saved correctly
+   */
+  private verifyStoredContext(key: string, originalContext: MCPContext): void {
+    const savedItem = this.storage?.getItem(key);
+    if (!savedItem) {
+      throw new Error(`Context was not saved properly: storage key ${key} not found`);
+    }
+    
+    // Verify that document content survived serialization
+    const savedContext = JSON.parse(savedItem) as MCPContext;
+    
+    if (savedContext.documentContext && originalContext.documentContext) {
+      const originalDocCount = originalContext.documentContext.length;
+      const savedDocCount = savedContext.documentContext.length;
+      
+      if (originalDocCount !== savedDocCount) {
+        console.error(`Document count mismatch after saving. Original: ${originalDocCount}, Saved: ${savedDocCount}`);
+      } else {
+        console.log(`Successfully saved context with ${savedDocCount} documents`);
         
         // Check content integrity
         let hasContentLoss = false;
         savedContext.documentContext.forEach((doc, i) => {
-          const originalDoc = context.documentContext!.find(d => d.documentId === doc.documentId);
+          const originalDoc = originalContext.documentContext!.find(d => d.documentId === doc.documentId);
           if (originalDoc && originalDoc.content.length !== doc.content.length) {
             console.error(`Content length mismatch for document ${doc.documentName}. Original: ${originalDoc.content.length}, Saved: ${doc.content.length}`);
             hasContentLoss = true;
@@ -82,28 +130,40 @@ export class LocalStorageService implements ContextStorageService {
           console.error('⚠️ Document content loss detected during save operation');
         }
       }
-      
-    } catch (error) {
-      console.error('Error saving context to storage:', error);
-      
-      // Try with a smaller payload if the error might be related to storage limits
-      if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-        console.warn('Storage quota exceeded. Attempting to save without document content...');
+    }
+  }
+  
+  /**
+   * Try to save context with fallback strategies when errors occur
+   */
+  private handleStorageError(conversationId: string, context: MCPContext, error: any): void {
+    // Handle quota exceeded error
+    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+      console.warn('Storage quota exceeded. Attempting to save with reduced document content...');
+      try {
+        // Create a version with reduced document content for fallback
+        const minimalContext = { ...context };
+        if (minimalContext.documentContext) {
+          minimalContext.documentContext = minimalContext.documentContext.map(doc => ({
+            ...doc,
+            content: `[Content removed due to storage limitations. Document: ${doc.documentName}]`
+          }));
+        }
+        
+        const key = `${this.keyPrefix}${conversationId}`;
+        this.storage?.setItem(key, JSON.stringify(minimalContext));
+        console.log('Saved context with reduced document content');
+      } catch (fallbackError) {
+        console.error('Failed to save even with reduced document content:', fallbackError);
+        
+        // Last resort: Try saving without any document content
         try {
-          // Create a version without document content for fallback
-          const minimalContext = { ...context };
-          if (minimalContext.documentContext) {
-            minimalContext.documentContext = minimalContext.documentContext.map(doc => ({
-              ...doc,
-              content: `[Content removed due to storage limitations. Document: ${doc.documentName}]`
-            }));
-          }
-          
+          const bareContext = { ...context, documentContext: [] };
           const key = `${this.keyPrefix}${conversationId}`;
-          this.storage.setItem(key, JSON.stringify(minimalContext));
-          console.log('Saved context with reduced document content');
-        } catch (fallbackError) {
-          console.error('Failed to save even with reduced document content:', fallbackError);
+          this.storage?.setItem(key, JSON.stringify(bareContext));
+          console.log('Saved context without any document content');
+        } catch (lastError) {
+          console.error('All attempts to save context failed:', lastError);
         }
       }
     }
@@ -142,6 +202,11 @@ export class LocalStorageService implements ContextStorageService {
         
         parsedContext.documentContext.forEach((doc, i) => {
           console.log(`Document ${i+1}: ${doc.documentName}, Content length: ${doc.content?.length || 0}`);
+          
+          // Handle potentially truncated content
+          if (doc.content && doc.content.includes('[CONTENT TRUNCATED DUE TO SIZE LIMITATIONS]')) {
+            console.warn(`Document ${doc.documentName} was previously truncated due to size limitations`);
+          }
         });
       } else {
         console.log(`Loaded context for ${conversationId} without document context`);

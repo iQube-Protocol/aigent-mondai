@@ -30,106 +30,105 @@ export class MCPClient {
   }
   
   /**
-   * Initializes or retrieves the conversation context
-   */
-  async initializeContext(existingConversationId?: string): Promise<string> {
-    const convId = await this.contextService.initializeContext(existingConversationId);
-    this.initialized = true;
-    return convId;
-  }
-  
-  /**
-   * Ensure the client is initialized
-   */
-  private async ensureInitialized(conversationId?: string): Promise<void> {
-    if (!this.initialized && conversationId) {
-      await this.initializeContext(conversationId);
-    } else if (!this.initialized) {
-      await this.initializeContext();
-    }
-  }
-  
-  /**
-   * Add a user message to the context
-   */
-  async addUserMessage(message: string): Promise<void> {
-    await this.ensureInitialized();
-    return this.contextService.addUserMessage(message);
-  }
-  
-  /**
-   * Add an agent response to the context
-   */
-  async addAgentResponse(response: string): Promise<void> {
-    await this.ensureInitialized();
-    return this.contextService.addAgentResponse(response);
-  }
-  
-  /**
-   * Connect to Google Drive and authorize access
+   * Connect to Google Drive
    */
   async connectToDrive(clientId: string, apiKey: string): Promise<boolean> {
-    return this.driveService.connectToDrive(clientId, apiKey);
-  }
-  
-  /**
-   * Reset Google Drive connection
-   */
-  async resetDriveConnection(): Promise<boolean> {
-    return this.driveService.resetDriveConnection();
-  }
-  
-  /**
-   * Load document metadata from Google Drive
-   */
-  async listDocuments(folderId?: string): Promise<DocumentMetadata[]> {
-    return this.driveService.listDocuments(folderId);
-  }
-  
-  /**
-   * Fetch a specific document and add its content to the context
-   */
-  async fetchDocumentContent(documentId: string): Promise<string | null> {
     try {
-      // First get the file metadata
-      const fileMetadata = await this.driveService.gapi.client.drive.files.get({
-        fileId: documentId,
-        fields: 'name,mimeType'
-      });
-      
-      const fileName = fileMetadata.result.name;
-      const mimeType = fileMetadata.result.mimeType;
-      
-      console.log(`Fetching document: ${fileName}, type: ${mimeType}`);
-      
-      // Fetch the document content
-      const documentContent = await this.driveService.fetchDocumentContent({
-        id: documentId,
-        name: fileName,
-        mimeType: mimeType
-      });
-      
-      if (!documentContent) {
-        console.error(`Document content is empty for ${fileName}`);
-        toast.error('Document content is empty', {
-          description: `Could not extract content from ${fileName}`
-        });
-        return null;
+      console.log('Connecting to Google Drive with client ID and API key');
+      const success = await this.driveService.initialize(clientId, apiKey);
+      if (success) {
+        console.log('Successfully connected to Google Drive');
+        return true;
+      } else {
+        console.error('Failed to connect to Google Drive');
+        return false;
       }
-      
-      console.log(`Successfully fetched document content for ${fileName}, length: ${documentContent.length}`);
-      return documentContent;
     } catch (error) {
-      console.error(`Error fetching document ${documentId}:`, error);
-      toast.error('Failed to fetch document', { 
-        description: error instanceof Error ? error.message : 'Unknown error' 
-      });
-      return null;
+      console.error('Error connecting to Google Drive:', error);
+      return false;
     }
   }
   
   /**
-   * Add document to MCP context
+   * Initialize context for a conversation
+   */
+  async initializeContext(conversationId?: string): Promise<string> {
+    try {
+      console.log(`Initializing MCP context for conversation ${conversationId || 'new'}`);
+      const newConversationId = await this.contextService.initializeContext(conversationId);
+      this.initialized = true;
+      return newConversationId;
+    } catch (error) {
+      console.error('Error initializing MCP context:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Ensure context is initialized
+   */
+  async ensureContextInitialized(conversationId?: string): Promise<string> {
+    if (!this.initialized) {
+      console.log('MCP context not initialized, initializing now');
+      return await this.initializeContext(conversationId);
+    }
+    
+    // Check if we need to switch conversation context
+    const currentConversationId = this.contextService.getConversationId();
+    if (conversationId && currentConversationId !== conversationId) {
+      console.log(`Switching context from ${currentConversationId} to ${conversationId}`);
+      return await this.initializeContext(conversationId);
+    }
+    
+    return currentConversationId || await this.initializeContext();
+  }
+  
+  /**
+   * Get drive connection status
+   */
+  isDriveConnected(): boolean {
+    return this.driveService.isConnected();
+  }
+  
+  /**
+   * List available documents
+   */
+  async listDocuments(folderId?: string): Promise<any[]> {
+    console.log(`Listing documents${folderId ? ' in folder ' + folderId : ''}`);
+    return await this.driveService.listFiles(folderId);
+  }
+  
+  /**
+   * Reset drive connection
+   */
+  resetDriveConnection(): void {
+    this.driveService.disconnect();
+    console.log('Drive connection reset');
+  }
+  
+  /**
+   * Fetch document content
+   */
+  async fetchDocumentContent(documentId: string): Promise<string> {
+    try {
+      console.log(`Fetching content for document ${documentId}`);
+      const content = await this.driveService.fetchDocumentContent(documentId);
+      
+      if (!content || content.length === 0) {
+        console.error(`Failed to fetch content for document ${documentId}: Content is empty`);
+        throw new Error('Document content is empty');
+      }
+      
+      console.log(`Successfully fetched content for document ${documentId}, length: ${content.length}`);
+      return content;
+    } catch (error) {
+      console.error(`Error fetching document content for ${documentId}:`, error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Add document to context
    */
   addDocumentToContext(
     documentId: string,
@@ -137,136 +136,178 @@ export class MCPClient {
     documentType: string,
     content: string
   ): void {
-    if (!this.initialized) {
-      console.error("Cannot add document: MCP client not initialized");
-      toast.error("MCP client not initialized");
-      throw new Error("MCP client not initialized");
-    }
-    
-    if (!content || content.length === 0) {
-      console.error(`Cannot add document ${documentName}: Content is empty`);
-      toast.error("Document content is empty", {
-        description: `Cannot add document "${documentName}" with empty content`
-      });
-      throw new Error(`Document content is empty for ${documentName}`);
-    }
-    
     try {
-      this.contextService.addDocumentToContext(
-        documentId,
-        documentName,
-        documentType,
-        content
-      );
+      console.log(`Adding document to context: ${documentName} (${documentId})`);
       
-      // Verify the document was added successfully
-      const context = this.getModelContext();
-      const docInContext = context?.documentContext?.find(doc => doc.documentId === documentId);
-      
-      if (!docInContext) {
-        console.error(`Document ${documentName} not found in context after adding!`);
-        throw new Error(`Failed to add document ${documentName} to context`);
+      // Validate content
+      if (!content || content.length === 0) {
+        throw new Error(`Cannot add document ${documentName}: Content is empty`);
       }
       
-      if (!docInContext.content || docInContext.content.length === 0) {
-        console.error(`Document ${documentName} added but content is empty!`);
-        throw new Error(`Document ${documentName} added with empty content`);
-      }
+      // Add to context
+      this.contextService.addDocumentToContext(documentId, documentName, documentType, content);
       
-      console.log(`Successfully added document ${documentName} to MCP context, content length: ${docInContext.content.length}`);
+      console.log(`Document ${documentName} successfully added to context`);
+      
+      // Dispatch a global event that document context was updated
+      try {
+        if (typeof window !== 'undefined') {
+          const event = new CustomEvent('documentContextUpdated', {
+            detail: { documentId, documentName, action: 'added' }
+          });
+          window.dispatchEvent(event);
+        }
+      } catch (eventError) {
+        console.error('Error dispatching document context updated event:', eventError);
+      }
     } catch (error) {
-      console.error(`Error adding document to context: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error(`Failed to add document ${documentName} to context:`, error);
+      toast.error(`Failed to add document ${documentName}`, {
+        description: error instanceof Error ? error.message : 'Unknown error'
+      });
       throw error;
     }
   }
   
   /**
-   * Remove document from MCP context
+   * Remove document from context
    */
   removeDocumentFromContext(documentId: string): boolean {
-    if (!this.initialized) {
-      console.warn("MCP client not initialized during document removal");
+    try {
+      console.log(`Removing document ${documentId} from context`);
+      const removed = this.contextService.removeDocumentFromContext(documentId);
+      
+      if (removed) {
+        console.log(`Document ${documentId} successfully removed from context`);
+        
+        // Dispatch a global event that document context was updated
+        try {
+          if (typeof window !== 'undefined') {
+            const event = new CustomEvent('documentContextUpdated', {
+              detail: { documentId, action: 'removed' }
+            });
+            window.dispatchEvent(event);
+          }
+        } catch (eventError) {
+          console.error('Error dispatching document context updated event:', eventError);
+        }
+      } else {
+        console.log(`Document ${documentId} was not found in context`);
+      }
+      
+      return removed;
+    } catch (error) {
+      console.error(`Error removing document ${documentId} from context:`, error);
       return false;
     }
-    
-    return this.contextService.removeDocumentFromContext(documentId);
   }
   
   /**
-   * Get the current context for use in AI models
+   * Add user message to context
+   */
+  async addUserMessage(message: string): Promise<void> {
+    try {
+      console.log('Adding user message to context');
+      await this.ensureContextInitialized();
+      await this.contextService.addUserMessage(message);
+    } catch (error) {
+      console.error('Error adding user message to context:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Add agent response to context
+   */
+  async addAgentResponse(response: string): Promise<void> {
+    try {
+      console.log('Adding agent response to context');
+      await this.ensureContextInitialized();
+      await this.contextService.addAgentResponse(response);
+    } catch (error) {
+      console.error('Error adding agent response to context:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Get current model context
    */
   getModelContext(): MCPContext | null {
-    if (!this.initialized) {
-      console.warn("Attempting to get model context before initialization");
+    try {
+      // Refresh context from storage first to ensure we have latest changes
+      this.contextService.refreshContextFromStorage();
+      
+      const context = this.contextService.getModelContext();
+      
+      // Verify document content integrity
+      if (context?.documentContext && context.documentContext.length > 0) {
+        console.log(`Retrieved model context with ${context.documentContext.length} documents`);
+        
+        // Check for documents with missing content
+        const invalidDocs = context.documentContext.filter(doc => !doc.content || doc.content.length === 0);
+        if (invalidDocs.length > 0) {
+          console.warn(`⚠️ Found ${invalidDocs.length} documents with invalid content`, 
+            invalidDocs.map(d => d.documentName));
+        }
+      } else {
+        console.log('Retrieved model context without any documents');
+      }
+      
+      return context;
+    } catch (error) {
+      console.error('Error getting model context:', error);
       return null;
     }
-    
-    // Force refresh from storage to ensure we have latest
-    this.contextService.refreshContextFromStorage();
-    
-    return this.contextService.getModelContext();
   }
   
   /**
-   * Update model preferences in the context
+   * Update model preference
    */
   setModelPreference(model: string): void {
     this.contextService.setModelPreference(model);
   }
   
   /**
-   * Enable or disable Metis capabilities
+   * Toggle Metis capabilities
    */
   setMetisActive(active: boolean): void {
     this.contextService.setMetisActive(active);
   }
   
   /**
-   * Get the conversation ID
+   * Get conversation ID
    */
   getConversationId(): string | null {
     return this.contextService.getConversationId();
   }
   
   /**
-   * Set the authentication token
+   * Force refresh context from storage (for multi-tab synchronization)
    */
-  setAuthToken(token: string): void {
-    this.authToken = token;
-  }
-  
-  /**
-   * Set the server URL
-   */
-  setServerUrl(url: string): void {
-    this.serverUrl = url;
-  }
-  
-  /**
-   * Check whether client is initialized
-   */
-  isInitialized(): boolean {
-    return this.initialized;
+  refreshContext(): boolean {
+    return this.contextService.refreshContextFromStorage();
   }
 }
 
-// Singleton instance for global use
+/**
+ * Singleton instance of the MCP client
+ */
 let mcpClientInstance: MCPClient | null = null;
 
 /**
- * Get the global MCP client instance
+ * Get the MCP client instance
  */
-export const getMCPClient = (options?: MCPClientOptions): MCPClient => {
+export function getMCPClient(options: MCPClientOptions = {}): MCPClient {
   if (!mcpClientInstance) {
-    console.log("Creating new MCP client instance");
+    console.log('Creating new MCP client instance');
     mcpClientInstance = new MCPClient(options);
-  } else if (options) {
-    // Update existing instance with new options if provided
-    console.log("Updating existing MCP client instance with new options");
-    if (options.serverUrl) mcpClientInstance.setServerUrl(options.serverUrl);
-    if (options.authToken) mcpClientInstance.setAuthToken(options.authToken);
-    if (options.metisActive !== undefined) mcpClientInstance.setMetisActive(options.metisActive);
+  } else {
+    // Update options if needed
+    if (options.metisActive !== undefined) {
+      mcpClientInstance.setMetisActive(options.metisActive);
+    }
   }
   
   return mcpClientInstance;
-};
+}

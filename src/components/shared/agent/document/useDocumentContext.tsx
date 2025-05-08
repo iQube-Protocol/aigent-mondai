@@ -15,6 +15,7 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
   const { client, fetchDocument, isLoading } = useMCP();
   const [selectedDocuments, setSelectedDocuments] = useState<any[]>([]);
   const [viewingDocument, setViewingDocument] = useState<{id: string, content: string, name: string, mimeType: string} | null>(null);
+  const [lastRefreshTime, setLastRefreshTime] = useState<number>(0);
   
   // Load document context when conversation ID or client changes
   const loadDocumentContext = useCallback(async () => {
@@ -29,9 +30,14 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
     }
     
     try {
+      console.log(`Loading documents for conversation ${conversationId}, refresh #${Date.now()}`);
+      
       // Always initialize context first to ensure we have the latest
       await client.initializeContext(conversationId);
       console.log(`Context initialized for conversation ${conversationId}`);
+      
+      // Force refresh from storage to ensure we have latest changes
+      client.refreshContext();
       
       const context = client.getModelContext();
       console.log("Loading document context. Context available:", !!context);
@@ -61,11 +67,14 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
           
           if (contentMissing) {
             console.error("Some documents have missing content! Attempting recovery...");
-            // This isn't ideal but we'll try to work with what we have
+            toast.warning("Some documents may have incomplete content", {
+              description: "This might affect the agent's ability to analyze them properly"
+            });
           }
         }
         
         setSelectedDocuments(docs);
+        setLastRefreshTime(Date.now());
       } else {
         console.log("No document context available");
         setSelectedDocuments([]);
@@ -131,18 +140,28 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
       console.log(`Adding document to context: ${document.name} (${document.id})`);
       
       // Initialize the context with the conversation ID
-      await client.initializeContext(conversationId);
+      await client.ensureContextInitialized(conversationId);
       
-      // Fetch document content
+      // Fetch document content with progress feedback
+      toast.loading(`Fetching document: ${document.name}`, { id: 'doc-fetch' });
       const content = await fetchDocument(document.id);
+      toast.dismiss('doc-fetch');
+      
       if (!content) {
         throw new Error('Failed to fetch document content');
       }
       
+      if (content.length === 0) {
+        throw new Error('Document content is empty');
+      }
+      
       console.log(`Document content fetched, length: ${content.length}`);
+      toast.loading(`Adding document: ${document.name}`, { id: 'doc-add' });
       
       // Add content to the document object for local tracking
       document.content = content;
+      
+      // Update local state immediately to show the document in the UI
       setSelectedDocuments(prev => [...prev, document]);
       
       // Extract document type from mimeType
@@ -156,6 +175,8 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
         documentType,
         content
       );
+      
+      toast.dismiss('doc-add');
       
       // Verify the document was added to context
       const updatedContext = client.getModelContext();
@@ -191,6 +212,10 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
       toast.error('Failed to add document', {
         description: error instanceof Error ? error.message : 'Unknown error'
       });
+      
+      // Remove the document from local state if it was added but failed in context
+      setSelectedDocuments(prev => prev.filter(doc => doc.id !== document.id));
+      
       throw error;
     }
   };
@@ -203,32 +228,44 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
       const documentToRemove = selectedDocuments.find(doc => doc.id === documentId);
       const documentName = documentToRemove?.name || documentId;
       
+      toast.loading(`Removing document: ${documentName}`, { id: 'doc-remove' });
+      
       // Remove from the client context
       if (client && conversationId) {
-        // Remove from MCP context first
-        const removed = client.removeDocumentFromContext(documentId);
-        console.log(`Document ${documentId} removal from MCP context: ${removed ? 'successful' : 'failed'}`);
-        
-        // Verify document was removed
-        const updatedContext = client.getModelContext();
-        const stillInContext = updatedContext?.documentContext?.some(d => d.documentId === documentId);
-        
-        if (stillInContext) {
-          console.warn(`Document ${documentName} still in context after removal attempt!`);
-        } else {
-          console.log(`Document ${documentName} successfully removed from context`);
-        }
-        
-        // Dispatch event that document context was updated
-        const event = new CustomEvent('documentContextUpdated', { 
-          detail: { documentId, removed: true, action: 'removed' } 
-        });
-        window.dispatchEvent(event);
+        // Ensure context is initialized
+        client.ensureContextInitialized(conversationId)
+          .then(() => {
+            // Remove from MCP context
+            const removed = client.removeDocumentFromContext(documentId);
+            console.log(`Document ${documentId} removal from MCP context: ${removed ? 'successful' : 'failed'}`);
+            
+            // Verify document was removed
+            const updatedContext = client.getModelContext();
+            const stillInContext = updatedContext?.documentContext?.some(d => d.documentId === documentId);
+            
+            if (stillInContext) {
+              console.warn(`Document ${documentName} still in context after removal attempt!`);
+              toast.error(`Failed to remove document: ${documentName}`);
+            } else {
+              console.log(`Document ${documentName} successfully removed from context`);
+              // Update local state
+              setSelectedDocuments(prev => prev.filter(doc => doc.id !== documentId));
+              toast.success(`Document "${documentName}" removed from context`);
+            }
+            
+            toast.dismiss('doc-remove');
+          })
+          .catch(error => {
+            console.error('Error initializing context for document removal:', error);
+            toast.error('Failed to initialize context for document removal');
+            toast.dismiss('doc-remove');
+          });
+      } else {
+        // Just update local state if client or conversationId not available
+        setSelectedDocuments(prev => prev.filter(doc => doc.id !== documentId));
+        toast.dismiss('doc-remove');
+        toast.success(`Document "${documentName}" removed`);
       }
-      
-      // Update local state
-      setSelectedDocuments(prev => prev.filter(doc => doc.id !== documentId));
-      toast.success(`Document "${documentName}" removed from context`);
     } catch (error) {
       console.error('Error removing document:', error);
       toast.error('Failed to remove document');
@@ -252,6 +289,7 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
     handleDocumentSelect,
     handleRemoveDocument,
     handleViewDocument,
-    loadDocumentContext // Expose this so other components can trigger a refresh
+    loadDocumentContext, // Expose this so other components can trigger a refresh
+    lastRefreshTime
   };
 }

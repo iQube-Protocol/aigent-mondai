@@ -40,11 +40,22 @@ const AgentTabs: React.FC<AgentTabsProps> = ({
   handleDocumentAdded,
   documentUpdates = 0
 }) => {
-  // Function to handle form submission and switch to chat tab
+  // Enhanced form submission handler that switches to chat tab
   const handleFormSubmit = (e: React.FormEvent) => {
-    handleSubmit(e);
-    // Always switch to chat tab when a message is sent
-    setActiveTab('chat');
+    e.preventDefault();
+    
+    // Only proceed if there's input content
+    if (inputValue.trim()) {
+      console.log(`Submit triggered from ${activeTab} tab with message: ${inputValue}`);
+      
+      // Process the form submission
+      handleSubmit(e);
+      
+      // Switch to chat tab to see the response
+      setActiveTab('chat');
+    } else {
+      console.log('Empty message, not submitting');
+    }
   };
 
   return (
