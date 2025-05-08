@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { MCPClient, getMCPClient } from '@/integrations/mcp/client';
 import { useAuth } from '@/hooks/use-auth';
