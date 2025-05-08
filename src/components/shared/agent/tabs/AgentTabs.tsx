@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ChatTab from './ChatTab';
 import DocumentContext from '../DocumentContext';
@@ -40,7 +40,7 @@ const AgentTabs: React.FC<AgentTabsProps> = ({
   handleDocumentAdded,
   documentUpdates = 0
 }) => {
-  // Enhanced form submission handler that switches to chat tab
+  // Enhanced form submission handler that will switch to chat tab after submission
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -48,12 +48,23 @@ const AgentTabs: React.FC<AgentTabsProps> = ({
     if (inputValue.trim()) {
       console.log(`Submit triggered from ${activeTab} tab with message: ${inputValue}`);
       
-      // Process the form submission - don't switch tabs here, let the submission handler do it
+      // Process the form submission
       handleSubmit(e);
+      
+      // Switch to chat tab to see the response
+      setActiveTab('chat');
     } else {
       console.log('Empty message, not submitting');
     }
   };
+
+  // Effect to switch to chat tab when a new message is received
+  useEffect(() => {
+    if (isProcessing && activeTab !== 'chat') {
+      console.log('Message processing started, switching to chat tab');
+      setActiveTab('chat');
+    }
+  }, [isProcessing, activeTab, setActiveTab]);
 
   return (
     <Tabs 

@@ -1,8 +1,8 @@
-
 import { MCPClientOptions, MCPContext, DocumentMetadata } from './types';
 import { GoogleDriveService } from './GoogleDriveService';
 import { ContextService } from './context';
 import { toast } from 'sonner';
+import { FileWatcher } from '@/utils/fileWatcher';
 
 export { type MCPContext, type MCPClientOptions } from './types';
 
@@ -113,7 +113,7 @@ export class MCPClient {
     try {
       console.log(`Fetching content for document ${documentId}`);
       // Create a document metadata object with the required id field
-      const documentMetadata = { id: documentId, name: documentId, mimeType: '' };
+      const documentMetadata: DocumentMetadata = { id: documentId, name: documentId, mimeType: '' };
       const content = await this.driveService.fetchDocumentContent(documentMetadata);
       
       if (!content || content.length === 0) {
@@ -151,17 +151,8 @@ export class MCPClient {
       
       console.log(`Document ${documentName} successfully added to context`);
       
-      // Dispatch a global event that document context was updated
-      try {
-        if (typeof window !== 'undefined') {
-          const event = new CustomEvent('documentContextUpdated', {
-            detail: { documentId, documentName, action: 'added' }
-          });
-          window.dispatchEvent(event);
-        }
-      } catch (eventError) {
-        console.error('Error dispatching document context updated event:', eventError);
-      }
+      // Notify that document context was updated
+      FileWatcher.notifyDocumentContextChange();
     } catch (error) {
       console.error(`Failed to add document ${documentName} to context:`, error);
       toast.error(`Failed to add document ${documentName}`, {
@@ -182,17 +173,8 @@ export class MCPClient {
       if (removed) {
         console.log(`Document ${documentId} successfully removed from context`);
         
-        // Dispatch a global event that document context was updated
-        try {
-          if (typeof window !== 'undefined') {
-            const event = new CustomEvent('documentContextUpdated', {
-              detail: { documentId, action: 'removed' }
-            });
-            window.dispatchEvent(event);
-          }
-        } catch (eventError) {
-          console.error('Error dispatching document context updated event:', eventError);
-        }
+        // Notify that document context was updated
+        FileWatcher.notifyDocumentContextChange();
       } else {
         console.log(`Document ${documentId} was not found in context`);
       }
@@ -288,7 +270,12 @@ export class MCPClient {
    * Force refresh context from storage (for multi-tab synchronization)
    */
   refreshContext(): boolean {
-    return this.contextService.refreshContextFromStorage();
+    const result = this.contextService.refreshContextFromStorage();
+    // Notify that document context might have changed
+    if (result) {
+      FileWatcher.notifyDocumentContextChange();
+    }
+    return result;
   }
 }
 

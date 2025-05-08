@@ -1,3 +1,4 @@
+
 import { toast } from 'sonner';
 import { DocumentMetadata } from './types';
 
@@ -172,9 +173,20 @@ export class GoogleDriveService {
     }
     
     try {
+      if (!this.gapi || !this.gapi.client || !this.gapi.client.drive) {
+        console.error('Google Drive API not loaded');
+        await this.waitForApiLoad(10, 300); // Try to wait longer with more attempts
+        
+        if (!this.gapi || !this.gapi.client || !this.gapi.client.drive) {
+          throw new Error('Google Drive API not available after waiting');
+        }
+      }
+      
       const query = folderId ? 
         `'${folderId}' in parents and trashed = false` : 
         `'root' in parents and trashed = false`;
+      
+      console.log(`Executing Google Drive query: ${query}`);
       
       const response = await this.gapi.client.drive.files.list({
         q: query,
@@ -253,6 +265,7 @@ export class GoogleDriveService {
         }
       }
       
+      console.log(`Successfully fetched content for ${fileName}, length: ${documentContent.length}`);
       return documentContent;
     } catch (error) {
       console.error(`Error fetching document ${documentId}:`, error);

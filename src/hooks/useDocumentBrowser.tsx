@@ -1,82 +1,85 @@
 
-import { useState, useEffect } from 'react';
-import { useMCP } from '@/hooks/use-mcp';
-
-interface FolderHistory {
-  id: string;
-  name: string;
-}
+import { useState, useEffect, useCallback } from 'react';
+import { useMCP } from './use-mcp';
 
 export function useDocumentBrowser() {
-  const { listDocuments, documents, isLoading, driveConnected } = useMCP();
-  const [currentFolder, setCurrentFolder] = useState('');
-  const [folderHistory, setFolderHistory] = useState<FolderHistory[]>([]);
+  const { client, isLoading: clientLoading } = useMCP();
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [currentFolder, setCurrentFolder] = useState<string>('');
+  const [folderHistory, setFolderHistory] = useState<{ id: string, name: string }[]>([]);
   const [isOpen, setIsOpen] = useState(false);
-  
-  // Fetch documents when dialog opens or folder changes
+
+  // List documents when the dialog is opened or folder changes
   useEffect(() => {
-    if (isOpen && driveConnected) {
-      listDocuments(currentFolder);
+    if (isOpen && client?.isDriveConnected()) {
+      refreshCurrentFolder();
     }
-  }, [isOpen, driveConnected, currentFolder, listDocuments]);
+  }, [isOpen, currentFolder, client]);
 
-  const handleDocumentClick = (doc: any) => {
+  // Handle initial list documents on dialog open
+  const refreshCurrentFolder = useCallback(async () => {
+    if (!client) return;
+    
+    setIsLoading(true);
+    try {
+      console.log('Listing documents with folder ID:', currentFolder || 'root');
+      const docs = await client.listDocuments(currentFolder || undefined);
+      console.log('Documents received:', docs);
+      setDocuments(docs);
+    } catch (error) {
+      console.error('Error listing documents:', error);
+      setDocuments([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [client, currentFolder]);
+
+  // Handle document click
+  const handleDocumentClick = useCallback((doc: any) => {
     if (doc.mimeType.includes('folder')) {
-      // Save current folder to history before navigating
-      if (currentFolder) {
-        // Find the current folder name from documents
-        const currentFolderDoc = documents.find(d => d.id === currentFolder);
-        if (currentFolderDoc) {
-          setFolderHistory([...folderHistory, {
-            id: currentFolder,
-            name: currentFolderDoc.name
-          }]);
-        }
-      }
+      // Navigate into the folder
+      setFolderHistory(prev => [...prev, { id: currentFolder, name: doc.name }]);
       setCurrentFolder(doc.id);
+      return null;
+    } else {
+      // Return the document for selection
+      console.log('Document selected:', doc);
+      return doc;
     }
-    return doc;
-  };
+  }, [currentFolder]);
 
-  const handleBack = () => {
+  // Handle back navigation
+  const handleBack = useCallback(() => {
     if (folderHistory.length > 0) {
-      // Go back to the previous folder
       const newHistory = [...folderHistory];
       const lastFolder = newHistory.pop();
       setFolderHistory(newHistory);
       setCurrentFolder(lastFolder?.id || '');
-    } else {
-      // Go back to root
+    }
+  }, [folderHistory]);
+
+  // Navigate to a specific folder in the breadcrumb
+  const navigateToFolder = useCallback((index: number) => {
+    if (index < 0) {
       setCurrentFolder('');
+      setFolderHistory([]);
+    } else if (index < folderHistory.length) {
+      const newHistory = folderHistory.slice(0, index + 1);
+      setFolderHistory(newHistory);
+      setCurrentFolder(newHistory[index].id);
     }
-  };
-  
-  const navigateToFolder = (folderId: string, historyIndex?: number) => {
-    if (historyIndex !== undefined) {
-      // Navigate to specific folder in history
-      setCurrentFolder(folderId);
-      setFolderHistory(folderHistory.slice(0, historyIndex));
-    } else {
-      setCurrentFolder(folderId);
-    }
-  };
-  
-  const navigateToRoot = () => {
+  }, [folderHistory]);
+
+  // Navigate to root
+  const navigateToRoot = useCallback(() => {
     setCurrentFolder('');
     setFolderHistory([]);
-  };
-  
-  const refreshCurrentFolder = () => {
-    if (driveConnected) {
-      // Only refresh if we're actually connected to avoid unnecessary calls
-      console.log(`Refreshing folder: ${currentFolder || 'root'}`);
-      listDocuments(currentFolder);
-    }
-  };
+  }, []);
 
   return {
     documents,
-    isLoading,
+    isLoading: isLoading || clientLoading,
     currentFolder,
     folderHistory,
     isOpen,
@@ -88,3 +91,4 @@ export function useDocumentBrowser() {
     refreshCurrentFolder
   };
 }
+
