@@ -92,7 +92,7 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
     loadDocumentContext();
   }, [loadDocumentContext]);
   
-  // Set up event listeners for context changes
+  // Set up event listeners for context changes - use consistent event name 'documentContextUpdated'
   useEffect(() => {
     const handleContextUpdate = (event: CustomEvent) => {
       console.log("Document context updated event received:", event.detail);
@@ -195,7 +195,7 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
         throw new Error("Failed to add document to context");
       }
       
-      // Dispatch event that document context was updated
+      // Dispatch event that document context was updated - use the correct event name
       const event = new CustomEvent('documentContextUpdated', { 
         detail: { documentId: document.id, action: 'added' } 
       });
@@ -289,7 +289,7 @@ export default function useDocumentContext({ conversationId, onDocumentAdded }: 
     handleDocumentSelect,
     handleRemoveDocument,
     handleViewDocument,
-    loadDocumentContext, // Expose this so other components can trigger a refresh
+    loadDocumentContext,
     lastRefreshTime
   };
 }

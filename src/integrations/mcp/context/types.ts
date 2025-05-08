@@ -4,7 +4,7 @@ import { MCPContext } from '../types';
 export interface StorageOptions {
   storage?: Storage;
   keyPrefix?: string;
-  maxDocumentSize?: number;
+  maxDocumentSize?: number; // Maximum size in bytes for document content storage
 }
 
 export interface ContextStorageService {

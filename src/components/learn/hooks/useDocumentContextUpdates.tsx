@@ -1,10 +1,23 @@
 
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 
 export function useDocumentContextUpdates() {
   const [documentContextUpdated, setDocumentContextUpdated] = useState<number>(0);
-  const navigate = useNavigate();
+
+  // Listen for document context updates
+  useEffect(() => {
+    const handleDocumentContextUpdated = () => {
+      setDocumentContextUpdated(prev => prev + 1);
+      console.log('Document context updated, triggering refresh');
+    };
+    
+    // Use the correct event name
+    window.addEventListener('documentContextUpdated', handleDocumentContextUpdated);
+    
+    return () => {
+      window.removeEventListener('documentContextUpdated', handleDocumentContextUpdated);
+    };
+  }, []);
 
   const handleDocumentContextUpdated = () => {
     setDocumentContextUpdated(prev => prev + 1);

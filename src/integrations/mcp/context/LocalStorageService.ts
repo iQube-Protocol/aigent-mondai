@@ -1,3 +1,4 @@
+
 import { ContextStorageService, StorageOptions } from './types';
 import { MCPContext } from '../types';
 
@@ -37,7 +38,8 @@ export class LocalStorageService implements ContextStorageService {
         const contextCopy: MCPContext = JSON.parse(JSON.stringify(context));
         
         // Store each document content separately if it's large
-        for (const doc of contextCopy.documentContext) {
+        for (let i = 0; i < contextCopy.documentContext.length; i++) {
+          const doc = contextCopy.documentContext[i];
           if (doc.content && doc.content.length > this.maxDocumentSize / 2) {
             const docKey = `${this.keyPrefix}${conversationId}_doc_${doc.documentId}`;
             this.storage.setItem(docKey, doc.content);
@@ -104,7 +106,8 @@ export class LocalStorageService implements ContextStorageService {
       
       // Handle document content references
       if (context.documentContext) {
-        for (const doc of context.documentContext) {
+        for (let i = 0; i < context.documentContext.length; i++) {
+          const doc = context.documentContext[i];
           if (doc.content && typeof doc.content === 'string' && doc.content.startsWith('__DOC_REF__')) {
             const docKey = doc.content.replace('__DOC_REF__', '');
             const docContent = this.storage.getItem(docKey);

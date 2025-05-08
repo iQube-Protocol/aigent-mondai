@@ -32,12 +32,13 @@ export class FileWatcher {
   
   /**
    * Notify all listeners about document context changes
+   * This dispatches a consistent 'documentContextUpdated' event
    */
   static notifyDocumentContextChange(): void {
     console.log('FileWatcher: notifying document context change');
     // Dispatch a custom event that can be caught by document context components
     if (typeof window !== 'undefined') {
-      const event = new CustomEvent('documentContextChanged', {
+      const event = new CustomEvent('documentContextUpdated', {
         detail: { timestamp: Date.now() }
       });
       window.dispatchEvent(event);

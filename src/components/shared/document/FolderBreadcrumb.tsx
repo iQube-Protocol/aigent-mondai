@@ -11,7 +11,7 @@ interface FolderHistory {
 interface FolderBreadcrumbProps {
   currentFolder: string;
   folderHistory: FolderHistory[];
-  navigateToFolder: (folderId: string, historyIndex?: number) => void;
+  navigateToFolder: (index: number) => void;
   navigateToRoot: () => void;
 }
 
@@ -40,7 +40,7 @@ const FolderBreadcrumb: React.FC<FolderBreadcrumbProps> = ({
           <Button 
             variant="ghost" 
             size="sm"
-            onClick={() => navigateToFolder(folder.id, index)}
+            onClick={() => navigateToFolder(index)}
           >
             {folder.name}
           </Button>

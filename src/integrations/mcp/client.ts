@@ -1,3 +1,4 @@
+
 import { MCPClientOptions, MCPContext, DocumentMetadata } from './types';
 import { GoogleDriveService } from './GoogleDriveService';
 import { ContextService } from './context';
@@ -113,7 +114,11 @@ export class MCPClient {
     try {
       console.log(`Fetching content for document ${documentId}`);
       // Create a document metadata object with the required id field
-      const documentMetadata: DocumentMetadata = { id: documentId, name: documentId, mimeType: '' };
+      const documentMetadata: DocumentMetadata = { 
+        id: documentId, 
+        name: documentId, 
+        mimeType: '' 
+      };
       const content = await this.driveService.fetchDocumentContent(documentMetadata);
       
       if (!content || content.length === 0) {
@@ -151,7 +156,7 @@ export class MCPClient {
       
       console.log(`Document ${documentName} successfully added to context`);
       
-      // Notify that document context was updated
+      // Notify that document context was updated - use the correct event name
       FileWatcher.notifyDocumentContextChange();
     } catch (error) {
       console.error(`Failed to add document ${documentName} to context:`, error);

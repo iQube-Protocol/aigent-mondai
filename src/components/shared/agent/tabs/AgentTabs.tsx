@@ -58,7 +58,7 @@ const AgentTabs: React.FC<AgentTabsProps> = ({
     }
   };
 
-  // Effect to switch to chat tab when a new message is received
+  // Effect to switch to chat tab when a new message is received or when processing starts
   useEffect(() => {
     if (isProcessing && activeTab !== 'chat') {
       console.log('Message processing started, switching to chat tab');
