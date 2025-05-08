@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,6 +20,7 @@ const SignIn = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { signIn, signUp, user } = useAuth();
   
   // Registration state
@@ -31,13 +32,15 @@ const SignIn = () => {
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [isRegisterLoading, setIsRegisterLoading] = useState(false);
   
-  // Check if user is already logged in
+  // Check if user is already logged in and redirect
   useEffect(() => {
     if (user) {
       console.log("User already logged in, redirecting to home");
-      navigate('/');
+      // Get the intended destination from the location state or default to home
+      const from = location.state?.from?.pathname || '/';
+      navigate(from, { replace: true });
     }
-  }, [user, navigate]);
+  }, [user, navigate, location]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,7 +51,7 @@ const SignIn = () => {
       
       if (success) {
         toast.success('Signed in successfully');
-        navigate('/');
+        // Redirection will happen in the useEffect hook
       } else if (error) {
         toast.error(`Sign in failed: ${error.message}`);
       }
