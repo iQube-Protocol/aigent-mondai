@@ -35,7 +35,7 @@ export class MCPClient {
   async connectToDrive(clientId: string, apiKey: string): Promise<boolean> {
     try {
       console.log('Connecting to Google Drive with client ID and API key');
-      const success = await this.driveService.initialize(clientId, apiKey);
+      const success = await this.driveService.connectToDrive(clientId, apiKey);
       if (success) {
         console.log('Successfully connected to Google Drive');
         return true;
@@ -95,14 +95,14 @@ export class MCPClient {
    */
   async listDocuments(folderId?: string): Promise<any[]> {
     console.log(`Listing documents${folderId ? ' in folder ' + folderId : ''}`);
-    return await this.driveService.listFiles(folderId);
+    return await this.driveService.listDocuments(folderId);
   }
   
   /**
    * Reset drive connection
    */
   resetDriveConnection(): void {
-    this.driveService.disconnect();
+    this.driveService.resetDriveConnection();
     console.log('Drive connection reset');
   }
   
@@ -112,7 +112,9 @@ export class MCPClient {
   async fetchDocumentContent(documentId: string): Promise<string> {
     try {
       console.log(`Fetching content for document ${documentId}`);
-      const content = await this.driveService.fetchDocumentContent(documentId);
+      // Create a document metadata object with the required id field
+      const documentMetadata = { id: documentId, name: documentId, mimeType: '' };
+      const content = await this.driveService.fetchDocumentContent(documentMetadata);
       
       if (!content || content.length === 0) {
         console.error(`Failed to fetch content for document ${documentId}: Content is empty`);

@@ -48,11 +48,8 @@ const AgentTabs: React.FC<AgentTabsProps> = ({
     if (inputValue.trim()) {
       console.log(`Submit triggered from ${activeTab} tab with message: ${inputValue}`);
       
-      // Process the form submission
+      // Process the form submission - don't switch tabs here, let the submission handler do it
       handleSubmit(e);
-      
-      // Switch to chat tab to see the response
-      setActiveTab('chat');
     } else {
       console.log('Empty message, not submitting');
     }
