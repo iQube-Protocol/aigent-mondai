@@ -1,6 +1,6 @@
 
 import React from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 
 interface ProtectedRouteProps {
@@ -9,9 +9,8 @@ interface ProtectedRouteProps {
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { user, loading } = useAuth();
-  const location = useLocation();
   
-  console.log("ProtectedRoute - Auth status:", { user: !!user, loading, path: location.pathname });
+  console.log("ProtectedRoute - Auth status:", { user: !!user, loading });
   
   if (loading) {
     return (
@@ -25,9 +24,8 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }
   
   if (!user) {
-    console.log("ProtectedRoute - Redirecting to signin page with state:", { from: location });
-    // Pass the current location to the signin page so it can redirect back after login
-    return <Navigate to="/signin" state={{ from: location }} replace />;
+    console.log("ProtectedRoute - Redirecting to signin page");
+    return <Navigate to="/signin" replace />;
   }
   
   console.log("ProtectedRoute - Authenticated, rendering children");

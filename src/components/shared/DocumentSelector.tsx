@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -10,13 +10,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { FileText, RefreshCw } from 'lucide-react';
+import { Info, FileText } from 'lucide-react';
 import { useDriveConnection } from '@/hooks/useDriveConnection';
 import { useDocumentBrowser } from '@/hooks/useDocumentBrowser';
 import ConnectionForm from './document/ConnectionForm';
 import FolderBreadcrumb from './document/FolderBreadcrumb';
 import FileGrid from './document/FileGrid';
-import { toast } from 'sonner';
+import { Separator } from '@/components/ui/separator';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface DocumentSelectorProps {
   onDocumentSelect: (document: any) => void;
@@ -34,8 +35,7 @@ const DocumentSelector: React.FC<DocumentSelectorProps> = ({
     setClientId,
     apiKey,
     setApiKey,
-    handleConnect,
-    resetConnection
+    handleConnect
   } = useDriveConnection();
   
   const {
@@ -56,40 +56,21 @@ const DocumentSelector: React.FC<DocumentSelectorProps> = ({
     setIsOpen(open);
   };
   
-  const handleFileSelection = async (doc: any) => {
+  const handleFileSelection = (doc: any) => {
     const result = handleDocumentClick(doc);
     // If not a folder, pass the document to the parent component
     if (!doc.mimeType.includes('folder')) {
-      try {
-        await onDocumentSelect(result);
-        // Close dialog after document is selected
-        setIsOpen(false);
-        toast.success('Document added to context');
-      } catch (error) {
-        console.error('Error selecting document:', error);
-        if (error.message?.includes('already in context')) {
-          toast.info('Document already in context');
-        } else {
-          toast.error('Failed to add document to context');
-        }
-      }
+      onDocumentSelect(result);
+      setIsOpen(false);
     }
   };
-  
-  const handleResetConnection = async () => {
-    await resetConnection();
-    refreshCurrentFolder();
-  };
-  
-  // Enhanced connect handler that refreshes documents after successful connection
-  const handleEnhancedConnect = async () => {
-    const success = await handleConnect();
-    if (success) {
-      // If connection was successful, refresh documents
+
+  // If we have credentials stored but haven't fetched documents yet
+  useEffect(() => {
+    if (driveConnected && isOpen && documents.length === 0 && !documentsLoading) {
       refreshCurrentFolder();
     }
-    return success;
-  };
+  }, [driveConnected, isOpen, documents.length, documentsLoading, refreshCurrentFolder]);
   
   return (
     <Dialog open={isOpen} onOpenChange={handleDialogChange}>
@@ -113,14 +94,30 @@ const DocumentSelector: React.FC<DocumentSelectorProps> = ({
         </DialogHeader>
         
         {!driveConnected ? (
-          <ConnectionForm 
-            clientId={clientId}
-            setClientId={setClientId}
-            apiKey={apiKey}
-            setApiKey={setApiKey}
-            handleConnect={handleEnhancedConnect}
-            isLoading={connectionLoading}
-          />
+          <>
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription className="mt-2">
+                To connect to your Google Drive, you'll need to create Google API credentials:
+                <ol className="list-decimal pl-5 mt-2 space-y-1 text-sm">
+                  <li>Go to <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">Google Cloud Console</a></li>
+                  <li>Create a project and enable the Google Drive API</li>
+                  <li>Create an OAuth client ID (Web application type)</li>
+                  <li>Create an API Key</li>
+                  <li>Enter these credentials below</li>
+                </ol>
+              </AlertDescription>
+            </Alert>
+            <Separator className="my-2" />
+            <ConnectionForm 
+              clientId={clientId}
+              setClientId={setClientId}
+              apiKey={apiKey}
+              setApiKey={setApiKey}
+              handleConnect={handleConnect}
+              isLoading={connectionLoading}
+            />
+          </>
         ) : (
           <div className="py-4 h-[300px] overflow-y-auto">
             {/* Breadcrumb navigation */}
@@ -142,24 +139,13 @@ const DocumentSelector: React.FC<DocumentSelectorProps> = ({
           </div>
         )}
         
-        <DialogFooter className="flex justify-between items-center">
+        <DialogFooter>
           {driveConnected && (
             <>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="flex items-center gap-1"
-                onClick={handleResetConnection}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Reset Connection
+              <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
+              <Button onClick={refreshCurrentFolder}>
+                Refresh
               </Button>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
-                <Button onClick={refreshCurrentFolder}>
-                  Refresh
-                </Button>
-              </div>
             </>
           )}
         </DialogFooter>

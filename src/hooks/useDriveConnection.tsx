@@ -1,31 +1,40 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMCP } from '@/hooks/use-mcp';
 import { toast } from 'sonner';
 
 export function useDriveConnection() {
-  const { driveConnected, connectToDrive, isLoading, resetDriveConnection } = useMCP();
+  const { driveConnected, connectToDrive, isLoading, client } = useMCP();
   const [clientId, setClientId] = useState('');
   const [apiKey, setApiKey] = useState('');
   
-  const handleConnect = async () => {
-    const success = await connectToDrive(clientId, apiKey);
-    if (success) {
-      toast.success('Connected to Google Drive successfully');
+  // Try to load saved credentials from localStorage
+  useEffect(() => {
+    const savedClientId = localStorage.getItem('gdrive-client-id');
+    const savedApiKey = localStorage.getItem('gdrive-api-key');
+    
+    if (savedClientId) setClientId(savedClientId);
+    if (savedApiKey) setApiKey(savedApiKey);
+    
+    if (client?.isConnectedToDrive()) {
+      console.log('Drive is already connected based on client state');
     }
-    return success;
-  };
+  }, [client]);
   
-  const resetConnection = async () => {
-    try {
-      await resetDriveConnection();
-      toast.success('Google Drive connection reset successfully');
-      return true;
-    } catch (error) {
-      console.error('Error resetting connection:', error);
-      toast.error('Failed to reset Google Drive connection');
+  const handleConnect = async () => {
+    if (!clientId || !apiKey) {
+      toast.error('Missing Google API credentials', {
+        description: 'Both Client ID and API Key are required'
+      });
       return false;
     }
+    
+    // Save credentials for convenience
+    localStorage.setItem('gdrive-client-id', clientId);
+    localStorage.setItem('gdrive-api-key', apiKey);
+    
+    const success = await connectToDrive(clientId, apiKey);
+    return success;
   };
   
   return {
@@ -35,7 +44,6 @@ export function useDriveConnection() {
     setClientId,
     apiKey,
     setApiKey,
-    handleConnect,
-    resetConnection
+    handleConnect
   };
 }

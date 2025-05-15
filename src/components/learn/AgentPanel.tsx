@@ -5,7 +5,7 @@ import { MetaQube, BlakQube } from '@/lib/types';
 import { useMetisActivation } from './hooks/useMetisActivation';
 import { useDocumentContextUpdates } from './hooks/useDocumentContextUpdates';
 import { useConversationContext } from './hooks/useConversationContext';
-import { sendMessage } from './services/aiMessageService';
+import { processAiMessage } from './services/aiMessageService';
 
 interface AgentPanelProps {
   metaQube: MetaQube;
@@ -30,20 +30,16 @@ const AgentPanel = ({
   );
 
   const handleAIMessage = async (message: string) => {
-    // Create a function that handles receiving messages to update the UI
-    const handleMessageReceived = (message: any) => {
-      // This function will be called with pending messages
-      console.log("Received message:", message);
-      return message;
-    };
-    
-    const response = await sendMessage(
+    const response = await processAiMessage({
       message,
+      metaQube,
+      blakQube,
       conversationId,
-      'learn',
-      handleMessageReceived,
-      historicalContext
-    );
+      metisActive,
+      mcpClient,
+      historicalContext,
+      setConversationId,
+    });
     
     // Check if Metis was activated through the payment flow
     if (response.metadata?.metisActive !== undefined && response.metadata.metisActive !== metisActive) {

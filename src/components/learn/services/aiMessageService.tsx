@@ -1,168 +1,105 @@
 
-import React from 'react';
-import { toast } from 'sonner';
-import { AgentMessage } from '@/lib/types';
+import { MetaQube, BlakQube } from '@/lib/types';
 import { supabase } from '@/integrations/supabase/client';
-import { getMCPClient } from '@/integrations/mcp/client';
+import { processAgentInteraction, getConversationContext } from '@/services/agent-service';
+import { toast } from 'sonner';
 
-export const sendMessage = async (
-  message: string,
-  conversationId: string | null,
-  agentType = 'learn',
-  onMessageReceived: (message: AgentMessage) => void,
-  historicalContext?: string
-): Promise<AgentMessage> => {
+export async function processAiMessage({
+  message,
+  metaQube,
+  blakQube,
+  conversationId,
+  metisActive,
+  mcpClient,
+  historicalContext,
+  setConversationId,
+}) {
   try {
-    console.log(`Sending message to ${agentType} agent with conversation ID ${conversationId}`);
-
-    // Create pending message to show in UI immediately
-    const pendingMessage: AgentMessage = {
-      id: `pending-${Date.now()}`,
-      sender: 'agent',
-      message: '...',
-      timestamp: new Date().toISOString(),
-      metadata: { status: 'pending' }
-    };
+    // Get conversation context, including history if available
+    const contextResult = await getConversationContext(conversationId, 'learn');
     
-    onMessageReceived(pendingMessage);
-
-    // Get document context from MCP if available
-    let documentContext = null;
-    const mcpClient = getMCPClient();
-    if (!mcpClient) {
-      console.error("MCP client not available, cannot access document context");
-      throw new Error("Document context service unavailable");
+    if (contextResult.conversationId !== conversationId) {
+      setConversationId(contextResult.conversationId);
+      console.log(`Setting new conversation ID: ${contextResult.conversationId}`);
     }
     
-    // Force initialize context with the conversation ID to ensure we have latest data
-    if (conversationId) {
-      try {
-        await mcpClient.initializeContext(conversationId);
-        console.log("Context initialized for document access");
+    // Get MCP context if available
+    let documentContext = [];
+    if (mcpClient) {
+      const mcpContext = mcpClient.getModelContext();
+      if (mcpContext?.documentContext) {
+        documentContext = mcpContext.documentContext;
+        console.log('MCP: Including document context in request', {
+          documentCount: documentContext.length,
+          documentIds: documentContext.map(doc => doc.documentId),
+          documentNames: documentContext.map(doc => doc.documentName)
+        });
         
-        // Force refresh from storage
-        mcpClient.refreshContext();
-      } catch (error) {
-        console.error("Error initializing context:", error);
-        toast.error("Error accessing document context", {
-          description: "Some documents might not be included in the response"
+        // Log a sample of each document's content to verify it's being sent
+        documentContext.forEach((doc, index) => {
+          const contentPreview = doc.content.substring(0, 100) + (doc.content.length > 100 ? '...' : '');
+          console.log(`Document ${index + 1} (${doc.documentName}) content preview:`, contentPreview);
         });
       }
     }
     
-    const context = mcpClient.getModelContext();
-    documentContext = context?.documentContext || null;
-    
-    if (!documentContext || documentContext.length === 0) {
-      console.log("No documents available in context to send to AI service");
-    } else {
-      console.log(`Including ${documentContext.length} documents in request to AI service:`, 
-        documentContext.map(doc => doc.documentName));
-      
-      // Debug document content
-      let hasContentIssues = false;
-      let docsWithContent = 0;
-      
-      documentContext.forEach((doc, i) => {
-        console.log(`Document ${i+1}: ${doc.documentName}`);
-        console.log(`Type: ${doc.documentType}, Content length: ${doc.content?.length || 0}`);
-        
-        if (!doc.content || doc.content.length === 0) {
-          console.error(`⚠️ Document ${doc.documentName} has NO CONTENT! This will affect AI response.`);
-          hasContentIssues = true;
-        } else {
-          docsWithContent++;
-          console.log(`Content preview: ${doc.content.substring(0, 100)}...`);
-        }
-      });
-      
-      console.log(`Documents with content: ${docsWithContent} out of ${documentContext.length}`);
-      
-      if (hasContentIssues) {
-        toast.warning("Some documents have content issues", {
-          description: "Document content may not be properly included in the AI response"
-        });
-      } else if (docsWithContent > 0) {
-        toast.success(`Including ${docsWithContent} document(s) in your request`, {
-          description: "The AI will use these documents to provide a better response"
-        });
+    // Call the edge function to get the AI response
+    const { data, error } = await supabase.functions.invoke('learn-ai', {
+      body: { 
+        message, 
+        metaQube,
+        blakQube,
+        conversationId: contextResult.conversationId,
+        metisActive,
+        historicalContext: contextResult.historicalContext || '',
+        documentContext: documentContext
       }
-    }
-
-    // Prepare payload for edge function
-    const payload = {
-      message,
-      conversationId,
-      historicalContext,
-      documentContext // Include document context in the request
-    };
-
-    console.log("Sending request to AI service with:", {
-      message,
-      conversationId,
-      hasHistoricalContext: !!historicalContext,
-      documentCount: documentContext ? documentContext.length : 0
     });
-
-    // Call the appropriate edge function
-    const { data, error } = await supabase.functions.invoke(`${agentType}-ai`, {
-      body: payload
-    });
-
+    
     if (error) {
-      console.error("Edge function error:", error);
-      throw new Error(`Edge function error: ${error.message}`);
+      console.error('Error calling learn-ai function:', error);
+      throw new Error(error.message);
     }
-
-    // Process the response from the edge function
-    if (!data || !data.response) {
-      console.error("Invalid response from edge function:", data);
-      throw new Error('Invalid response from edge function');
-    }
-
-    console.log("AI service response:", data);
     
-    // Create the full message with the response
-    const responseMessage: AgentMessage = {
-      id: data.id || `msg-${Date.now()}`,
-      sender: 'agent',
-      message: data.response,
+    if (data.conversationId) {
+      setConversationId(data.conversationId);
+      console.log(`MCP conversation established with ID: ${data.conversationId}`);
+    }
+
+    // Store the interaction in the database for persistence
+    await processAgentInteraction(
+      message,
+      'learn',
+      data.message,
+      {
+        ...(data.mcp || {}),
+        metisActive: metisActive,
+        conversationId: data.conversationId
+      }
+    );
+    
+    return {
+      id: Date.now().toString(),
+      sender: 'agent' as const,
+      message: data.message,
+      timestamp: data.timestamp || new Date().toISOString(),
+      metadata: {
+        ...(data.mcp || {}),
+        metisActive: metisActive
+      }
+    };
+  } catch (error) {
+    console.error('Failed to get AI response:', error);
+    toast.error("AI Service Error: Could not connect to the AI service. Please try again later.");
+    
+    return {
+      id: Date.now().toString(),
+      sender: 'agent' as const,
+      message: "I'm sorry, I couldn't process your request. Please try again later.",
       timestamp: new Date().toISOString(),
       metadata: {
-        status: 'complete',
-        reliability: data.reliability || 0.85,
-        sources: data.sources || [],
-        conversationId: data.conversationId || conversationId,
-        documentsUsed: data.documentsUsed || false // Flag to indicate if documents were used
+        metisActive: metisActive
       }
     };
-
-    if (data.documentsUsed) {
-      console.log("AI response used documents in context");
-      toast.success("Referenced documents in response", {
-        description: "The AI used your uploaded documents to answer"
-      });
-    }
-
-    // Return the complete message
-    return responseMessage;
-  } catch (error) {
-    console.error('Error sending message:', error);
-    
-    // Show toast with error
-    toast.error('Failed to get response', {
-      description: error instanceof Error ? error.message : 'Unknown error occurred'
-    });
-
-    // Create error message
-    const errorMessage: AgentMessage = {
-      id: `error-${Date.now()}`,
-      sender: 'agent',
-      message: 'Sorry, I encountered an error processing your request. Please try again.',
-      timestamp: new Date().toISOString(),
-      metadata: { status: 'error' }
-    };
-
-    return errorMessage;
   }
-};
+}

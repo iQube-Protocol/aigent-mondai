@@ -54,52 +54,7 @@ serve(async (req) => {
     } = await req.json();
     
     console.log(`Processing request for conversation ${conversationId} with historical context: ${historicalContext ? 'present' : 'none'}`);
-    console.log(`Document context received: ${documentContext ? documentContext.length + ' documents' : 'none'}`);
-    
-    // Validate document context if provided
-    let validatedDocumentContext = documentContext;
-    let documentsWithContent = 0;
-    let documentsIncluded = false;
-    
-    if (documentContext && Array.isArray(documentContext)) {
-      // Validate document structure and content
-      validatedDocumentContext = documentContext.filter(doc => {
-        const isValid = doc && 
-          typeof doc.documentId === 'string' && 
-          typeof doc.documentName === 'string' && 
-          typeof doc.documentType === 'string' && 
-          typeof doc.content === 'string' &&
-          doc.content.length > 0;
-        
-        if (!isValid) {
-          console.log(`Filtering out invalid document: ${doc?.documentName || 'unknown'}`);
-        }
-        
-        if (doc && doc.content && doc.content.length > 0) {
-          documentsWithContent++;
-        }
-        
-        return isValid;
-      });
-      
-      if (validatedDocumentContext.length > 0) {
-        documentsIncluded = true;
-        console.log("Documents included in context with contents:", 
-          validatedDocumentContext.map((doc: any) => ({
-            name: doc.documentName,
-            type: doc.documentType,
-            contentLength: doc.content?.length || 0
-          })));
-      } else {
-        console.log("No valid documents with content were found in the request");
-      }
-      
-      console.log(`Documents with content: ${documentsWithContent} out of ${documentContext.length} received`);
-      
-      if (documentsWithContent === 0 && documentContext.length > 0) {
-        console.log("⚠️ All documents are missing content! This will affect agent response.");
-      }
-    }
+    console.log(`Document context: ${documentContext ? documentContext.length + ' documents' : 'none'}`);
     
     // Initialize or retrieve MCP context
     let mcpContext: MCPContext;
@@ -117,9 +72,8 @@ serve(async (req) => {
         mcpContext.metadata.metisActive = metisActive;
       }
       // Update document context if provided
-      if (validatedDocumentContext && validatedDocumentContext.length > 0) {
-        mcpContext.documentContext = validatedDocumentContext;
-        console.log(`Updated document context for conversation ${conversationId}, now has ${validatedDocumentContext.length} documents with content`);
+      if (documentContext) {
+        mcpContext.documentContext = documentContext;
       }
     } else {
       // Create new conversation context
@@ -140,12 +94,8 @@ serve(async (req) => {
           modelPreference: "gpt-4o-mini",
           metisActive: metisActive || false
         },
-        documentContext: validatedDocumentContext || []
+        documentContext: documentContext || []
       };
-      
-      if (validatedDocumentContext && validatedDocumentContext.length > 0) {
-        console.log(`New conversation ${newConversationId} created with ${validatedDocumentContext.length} documents`);
-      }
     }
     
     // Updated system prompt with formatting instructions including Mermaid, iQube data, and document context
@@ -196,25 +146,14 @@ Additionally, consider the following iQube data for personalization:
 
     // Add document context if available
     if (mcpContext.documentContext && mcpContext.documentContext.length > 0) {
-      documentsIncluded = true;
       systemPrompt += `\n\n**<document-context>**\nThe following documents have been shared for analysis:\n`;
       
       mcpContext.documentContext.forEach((doc, index) => {
-        if (doc.content && doc.content.length > 0) {
-          const contentLength = doc.content.length;
-          const previewLength = Math.min(contentLength, 2000);
-          
-          systemPrompt += `\nDocument ${index + 1}: ${doc.documentName} (Type: ${doc.documentType})\n`;
-          systemPrompt += `Content: ${doc.content.substring(0, previewLength)}${contentLength > previewLength ? '...(content truncated)' : ''}\n`;
-          
-          console.log(`Including document ${index + 1}: ${doc.documentName}, content length: ${contentLength}`);
-        } else {
-          systemPrompt += `\nDocument ${index + 1}: ${doc.documentName} (Type: ${doc.documentType}) - NOTE: Document has no content\n`;
-          console.log(`⚠️ Document ${index + 1}: ${doc.documentName} has no content to include`);
-        }
+        systemPrompt += `\nDocument ${index + 1}: ${doc.documentName} (Type: ${doc.documentType})\n`;
+        systemPrompt += `Content: ${doc.content.substring(0, 2000)}${doc.content.length > 2000 ? '...(content truncated)' : ''}\n`;
       });
       
-      systemPrompt += `\n\nWhen responding, refer to these documents when relevant and extract key information to help answer the user's questions. If the user asks about the documents, provide detailed information from them. If the user doesn't specifically mention the documents but they contain relevant information to the user's query, still incorporate that information in your response.`;
+      systemPrompt += `\nWhen responding, refer to these documents when relevant and extract key information to help answer the user's questions.`;
     }
 
     // Add historical context if provided
@@ -288,12 +227,10 @@ When the user asks about crypto risks, token security, or wallet protection, pro
     
     // Return the AI response with MCP metadata
     return new Response(JSON.stringify({ 
-      id: crypto.randomUUID(),
-      response: aiResponse,
+      message: aiResponse,
       timestamp: new Date().toISOString(),
       conversationId: mcpContext.conversationId,
       contextSize: mcpContext.messages.length,
-      documentsUsed: documentsIncluded,
       mcp: {
         version: "1.0",
         contextRetained: true,
@@ -309,7 +246,7 @@ When the user asks about crypto risks, token security, or wallet protection, pro
     console.error('Error in learn-ai function:', error);
     return new Response(JSON.stringify({ 
       error: error.message,
-      response: "I'm sorry, I couldn't process your request. Please try again later."
+      message: "I'm sorry, I couldn't process your request. Please try again later."
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -48,7 +48,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     supabase.auth.getSession().then(({ data, error }) => {
       if (error) {
         console.error("Error getting session:", error);
-        setLoading(false);
       } else {
         console.log("Got session:", data.session ? "Yes" : "No");
         if (mounted) {

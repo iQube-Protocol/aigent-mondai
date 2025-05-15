@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import AgentHeader from './AgentHeader';
 import AgentTabs from './tabs/AgentTabs';
 import { useAgentMessages } from './hooks/useAgentMessages';
-import './styles/agent-interface.css'; // We'll create this file for styles
 
 interface AgentInterfaceProps {
   title: string;
@@ -29,28 +28,10 @@ const AgentInterface = ({
   onDocumentAdded,
   documentContextUpdated = 0,
 }: AgentInterfaceProps) => {
-  // Get the active tab from localStorage or default to 'chat'
-  const getInitialTab = () => {
-    if (typeof window !== 'undefined') {
-      const savedTab = localStorage.getItem(`${agentType}-active-tab`);
-      if (savedTab && ['chat', 'knowledge', 'documents'].includes(savedTab)) {
-        return savedTab as 'chat' | 'knowledge' | 'documents';
-      }
-    }
-    return 'chat';
-  };
-  
-  const [activeTab, setActiveTab] = useState<'chat' | 'knowledge' | 'documents'>(getInitialTab());
-  const [documentUpdates, setDocumentUpdates] = useState<number>(0);
-  
-  // Save active tab to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem(`${agentType}-active-tab`, activeTab);
-  }, [activeTab, agentType]);
+  const [activeTab, setActiveTab] = useState<'chat' | 'knowledge' | 'documents'>('chat');
   
   const {
     messages,
-    setMessages,
     inputValue,
     isProcessing,
     playing,
@@ -66,54 +47,25 @@ const AgentInterface = ({
     onMessageSubmit
   });
 
-  // Handle document context updates from parent component
-  useEffect(() => {
-    if (documentContextUpdated > 0) {
-      console.log(`Document context updated (${documentContextUpdated}), refreshing UI`);
-      setDocumentUpdates(prev => prev + 1);
-    }
-  }, [documentContextUpdated]);
-
-  // Listen for document context updates from anywhere in the application
-  useEffect(() => {
-    const handleContextUpdate = (event: Event) => {
-      console.log("Document context updated event received in AgentInterface");
-      setDocumentUpdates(prev => prev + 1);
-    };
-    
-    window.addEventListener('documentContextUpdated', handleContextUpdate);
-    
-    return () => {
-      window.removeEventListener('documentContextUpdated', handleContextUpdate);
-    };
-  }, []);
-
   const handleDocumentAdded = () => {
-    // Notify the user that document context has been updated
+    // Refresh the messages or notify the user
     toast.success('Document context has been updated');
-    
-    // Add a system message to inform the user about documents
-    const systemMessage: AgentMessage = {
-      id: `system-${Date.now()}`,
-      sender: 'system',
-      message: 'I can now access the document you\'ve added. Feel free to ask questions about its content.',
-      timestamp: new Date().toISOString(),
-    };
-    
-    // Add the system message to the chat
-    setMessages(prev => [...prev, systemMessage]);
-    
-    // Update document counter to trigger UI refresh
-    setDocumentUpdates(prev => prev + 1);
     
     // Call the parent's onDocumentAdded if provided
     if (onDocumentAdded) {
       onDocumentAdded();
     }
     
-    // Switch to chat tab after document is added
+    // Switch to chat tab to encourage interaction with the document
     setActiveTab('chat');
   };
+
+  // Effect to track document context updates
+  useEffect(() => {
+    if (documentContextUpdated > 0) {
+      console.log(`Document context updated (${documentContextUpdated}), refreshing UI`);
+    }
+  }, [documentContextUpdated]);
 
   return (
     <Card className="flex flex-col h-full overflow-hidden">
@@ -137,7 +89,6 @@ const AgentInterface = ({
         handleSubmit={handleSubmit}
         handlePlayAudio={handlePlayAudio}
         handleDocumentAdded={handleDocumentAdded}
-        documentUpdates={documentUpdates}
       />
     </Card>
   );

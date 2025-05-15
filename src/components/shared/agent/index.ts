@@ -11,6 +11,4 @@ export { default as ReliabilityIndicator } from './ReliabilityIndicator';
 export { default as DocumentContext } from './DocumentContext';
 export { default as ChatTab } from './tabs/ChatTab';
 export { default as AgentTabs } from './tabs/AgentTabs';
-
-// Export all hooks from the hooks directory
-export * from './hooks';
+export { useAgentMessages } from './hooks/useAgentMessages';

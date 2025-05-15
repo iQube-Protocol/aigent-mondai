@@ -75,15 +75,8 @@ const MessageItem = ({ message, isPlaying, onPlayAudio }: MessageItemProps) => {
     window.dispatchEvent(new CustomEvent('metisActivated'));
   };
 
-  // Add special styling for system messages
-  const getMessageClass = () => {
-    if (message.sender === 'user') return 'user-message';
-    if (message.sender === 'system') return 'system-message';
-    return 'agent-message';
-  };
-
   return (
-    <div className={getMessageClass()}>
+    <div className={message.sender === 'user' ? 'user-message' : 'agent-message'}>
       <div className="flex">
         <div className="flex-1">
           <div className="flex items-center justify-between mb-1">
@@ -95,15 +88,10 @@ const MessageItem = ({ message, isPlaying, onPlayAudio }: MessageItemProps) => {
                 } : { metisActive: metisActive }} 
               />
             )}
-            {message.sender === 'system' && (
-              <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                System
-              </span>
-            )}
           </div>
           
           {/* Apply formatted message content */}
-          <div className={`prose prose-sm max-w-none ${message.sender === 'system' ? 'text-amber-700' : ''}`}>
+          <div className="prose prose-sm max-w-none">
             <MessageContent content={message.message} sender={message.sender} />
           </div>
           
